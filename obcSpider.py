@@ -47,5 +47,4 @@ if __name__ == '__main__':
         idx = extract_lang_id(html)
         print('    lang_idx: ', idx)
         for res in extract_voice_lines(html, idx):
-            print('    ', end='')
-            print(json.dumps(res, ensure_ascii=False))
+            print('    ', json.dumps(res, ensure_ascii=False))
