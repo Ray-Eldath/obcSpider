@@ -4,7 +4,7 @@ import requests
 from lxml import etree
 
 lang = 0  # 语言：0 汉语, 1 日语, 2 韩语, 3 英语
-targets = ['枫原万叶', '阿贝多', '提纳里']  # 角色名
+targets = ['枫原万叶', '阿贝多', '魈']  # 角色名
 
 
 def lift(x):
@@ -47,4 +47,4 @@ if __name__ == '__main__':
         idx = extract_lang_id(html)
         print('    lang_idx: ', idx)
         for res in extract_voice_lines(html, idx):
-            print('    ', json.dumps(res, ensure_ascii=False))
+            print(f'    {res[0]}: {"".join(res[1].splitlines())} {res[2]}')
