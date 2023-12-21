@@ -1,11 +1,30 @@
 import requests
 from lxml import etree
 
+Configurations = {
+    'genshin_impact': {
+        'home_url': 'https://api-static.mihoyo.com/common/blackboard/ys_obc/v1/home/content/list?app_sn=ys_obc&channel_id=189',
+        'detail_url': 'https://api-static.mihoyo.com/common/blackboard/ys_obc/v1/content/info?app_sn=ys_obc&content_id={}',
+        'language_tabs': ['汉语', '日语', '韩语', '英语'],
+        'character_fn': lambda home: select(select(home, "图鉴", "children"), '角色'),
+        'root_html_fn': lambda contents: select(contents, '角色展示', sub='text'),
+    },
+    'honkai:_star_rail': {
+        'home_url': 'https://api-static.mihoyo.com/common/blackboard/sr_wiki/v1/home/content/list?app_sn=sr_wiki&channel_id=17',
+        'detail_url': 'https://api-static.mihoyo.com/common/blackboard/sr_wiki/v1/content/info?app_sn=sr_wiki&content_id={}',
+        'language_tabs': ['中', '日', '英', '韩'],
+        'character_fn': lambda home: select(select(home, "游戏图鉴", "children"), '角色'),
+        'root_html_fn': lambda contents: select(contents, '角色百科', sub='text'),
+    }
+}
+
+Configuration = Configurations['honkai:_star_rail']
+
 VoiceLines = list[tuple[str, str, str]]
 
 
 def initial(x):
-    assert len(x) == 1
+    # assert len(x) == 1
     return x[0]
 
 
@@ -19,8 +38,9 @@ def lift(x, f=lambda id: id):
 
 
 def extract_lang_id(doc, lang_id: int) -> int:
-    languages = ['汉语', '日语', '韩语', '英语']
-    return initial(doc.xpath(f'//ul[@data-target="voiceTab.attr"][1]/li[text()="{languages[lang_id]}"]/@data-index'))
+    languages = Configuration['language_tabs']
+    return initial(
+        doc.xpath(f'//ul[@data-target="voiceTab.attr"][1]/li[text()[contains(., "{languages[lang_id]}")]]/@data-index'))
 
 
 def extract_voice_lines(doc, lang_idx: int) -> VoiceLines:
@@ -38,12 +58,9 @@ class ObcSpider:
     def __init__(self, include: list[str] = None,
                  exclude: list[str] = None,
                  lang_id: int = 0):
-        home_url = 'https://api-static.mihoyo.com/common/blackboard/ys_obc/v1/home/content/list?app_sn=ys_obc&channel_id=189'
-        # home_url = 'https://api-static.mihoyo.com/common/blackboard/sr_wiki/v1/home/content/list?app_sn=sr_wiki&channel_id=17'
+        home_url = Configuration['home_url']
         home = requests.get(home_url).json()['data']['list']
-        handbook = select(home, '图鉴', sub='children')
-        # handbook = select(home, '游戏图鉴', sub='children')
-        character = select(handbook, '角色')
+        character = Configuration['character_fn'](home)
         print([(e['title'], e['content_id']) for e in character])
         content_ids = [e['content_id'] for e in character if
                        (include is None or e['title'] in include) and (exclude is None or e['title'] not in exclude)]
@@ -54,16 +71,18 @@ class ObcSpider:
 
     def next(self):
         cid = self.content_ids[self.idx]
-        detail_url = f"https://api-static.mihoyo.com/common/blackboard/ys_obc/v1/content/info?app_sn=ys_obc&content_id={cid}"
-        # detail_url = f"https://api-static.mihoyo.com/common/blackboard/sr_wiki/v1/content/info?app_sn=sr_wiki&content_id={cid}"
+        detail_url = Configuration['detail_url'].format(cid)
         detail_payload = requests.get(detail_url).json()
         if detail_payload['retcode'] < 0:
             return None
         detail = detail_payload['data']['content']
-        html = etree.HTML(select(detail['contents'], '角色展示', sub='text'))
-        # html = etree.HTML(detail['contents'][0]['text'])
-        lang_idx = extract_lang_id(html, lang_id)
-        return detail['title'], detail['summary'], cid, extract_voice_lines(html, lang_idx)
+        try:
+            root = Configuration['root_html_fn'](detail['contents'])
+        except IndexError:
+            return detail['title'], detail['summary'], cid, []
+        root_html = etree.HTML(root)
+        lang_idx = extract_lang_id(root_html, lang_id)
+        return detail['title'], detail['summary'], cid, extract_voice_lines(root_html, lang_idx)
 
     def __iter__(self):
         return self
@@ -79,8 +98,8 @@ class ObcSpider:
 
 
 if __name__ == '__main__':
-    lang_id = 0
-    for (name, summary, cid, lines) in ObcSpider(exclude=['迪希雅', '班尼特', '莱欧斯利', '那维莱特'], lang_id=lang_id):
+    lang_id = 3
+    for (name, summary, cid, lines) in ObcSpider(lang_id=lang_id, include=['彦卿']):
         print(f"{name} - {summary}")
         for (title, line, audio_url) in lines:
             print(f"\t{title} - {line}: {audio_url}")
