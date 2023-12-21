@@ -1,3 +1,5 @@
+from typing import Literal
+
 import requests
 from lxml import etree
 
@@ -18,8 +20,6 @@ Configurations = {
     }
 }
 
-Configuration = Configurations['honkai:_star_rail']
-
 VoiceLines = list[tuple[str, str, str]]
 
 
@@ -37,12 +37,6 @@ def lift(x, f=lambda id: id):
     return f(x[0]) if len(x) == 1 else None
 
 
-def extract_lang_id(doc, lang_id: int) -> int:
-    languages = Configuration['language_tabs']
-    return initial(
-        doc.xpath(f'//ul[@data-target="voiceTab.attr"][1]/li[text()[contains(., "{languages[lang_id]}")]]/@data-index'))
-
-
 def extract_voice_lines(doc, lang_idx: int) -> VoiceLines:
     tbody_xpath = f'//li[@data-index="{lang_idx}"]/table[@class="obc-tmpl-character__voice-pc"]/tbody'
     voice_xpath = f'{tbody_xpath}/tr/td/div'
@@ -55,12 +49,14 @@ def extract_voice_lines(doc, lang_idx: int) -> VoiceLines:
 
 
 class ObcSpider:
-    def __init__(self, include: list[str] = None,
+    def __init__(self, configuration_key: Literal['genshin_impact', 'honkai:_star_rail'] = 'genshin_impact',
+                 include: list[str] = None,
                  exclude: list[str] = None,
                  lang_id: int = 0):
-        home_url = Configuration['home_url']
+        self.configuration = Configurations[configuration_key]
+        home_url = self.configuration['home_url']
         home = requests.get(home_url).json()['data']['list']
-        character = Configuration['character_fn'](home)
+        character = self.configuration['character_fn'](home)
         print([(e['title'], e['content_id']) for e in character])
         content_ids = [e['content_id'] for e in character if
                        (include is None or e['title'] in include) and (exclude is None or e['title'] not in exclude)]
@@ -71,18 +67,22 @@ class ObcSpider:
 
     def next(self):
         cid = self.content_ids[self.idx]
-        detail_url = Configuration['detail_url'].format(cid)
+        detail_url = self.configuration['detail_url'].format(cid)
         detail_payload = requests.get(detail_url).json()
         if detail_payload['retcode'] < 0:
             return None
         detail = detail_payload['data']['content']
         try:
-            root = Configuration['root_html_fn'](detail['contents'])
+            root = self.configuration['root_html_fn'](detail['contents'])
         except IndexError:
             return detail['title'], detail['summary'], cid, []
         root_html = etree.HTML(root)
-        lang_idx = extract_lang_id(root_html, lang_id)
+        lang_idx = self.__extract_lang_id(root_html, lang_id)
         return detail['title'], detail['summary'], cid, extract_voice_lines(root_html, lang_idx)
+
+    def __extract_lang_id(self, doc, lang_id: int) -> int:
+        languages = self.configuration['language_tabs']
+        return initial(doc.xpath(f'//ul[@data-target="voiceTab.attr"][1]/li[text()[contains(., "{languages[lang_id]}")]]/@data-index'))
 
     def __iter__(self):
         return self
@@ -98,8 +98,8 @@ class ObcSpider:
 
 
 if __name__ == '__main__':
-    lang_id = 3
-    for (name, summary, cid, lines) in ObcSpider(lang_id=lang_id, include=['彦卿']):
+    lang_id = 0
+    for (name, summary, cid, lines) in ObcSpider(configuration_key='honkai:_star_rail', lang_id=lang_id, include=['彦卿']):
         print(f"{name} - {summary}")
         for (title, line, audio_url) in lines:
             print(f"\t{title} - {line}: {audio_url}")
